@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --primary-color: #285222;
+        --secondary-color: #2d566c;
+        --bg-color: #f4f6f8;
+        --card-bg: #ffffff;
+      }
+      body { 
+        background-color: var(--bg-color); 
+        font-family: 'Noto Sans TC', sans-serif;
+        color: #333;
+      }
+      .container { 
+        max-width: 600px; 
+        margin-top: 40px;
+        background: var(--card-bg); 
+        padding: 40px; 
+        border-radius: 12px; 
+        box-shadow: 0 4px 20px rgba(0,0,0,0.08); 
+        border-top: 5px solid var(--primary-color);
+      }
+      h2 { color: var(--primary-color); font-weight: 700; margin-bottom: 25px; }
+      .btn-primary { 
+        background-color: var(--primary-color); 
+        border-color: var(--primary-color); 
+        padding: 10px;
+        font-weight: 500;
+      }
+      .btn-primary:hover { background-color: #1e3e1a; border-color: #1e3e1a; }
+      .btn-outline-secondary {
+        color: var(--secondary-color);
+        border-color: var(--secondary-color);
+      }
+      .btn-outline-secondary:hover {
+        background-color: var(--secondary-color);
+        color: #fff;
+      }
+      .form-label { color: var(--secondary-color); font-weight: 500; }
+      .loading { color: var(--secondary-color); display: none; font-size: 0.9em; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0">測試門號預留</h2>
+        <a href="<?!= ScriptApp.getService().getUrl() ?>?page=manage" class="btn btn-outline-secondary btn-sm">前往管理後台</a>
+      </div>
+      
+      <form id="reserveForm">
+        <div class="row mb-3">
+          <div class="col-12">
+            <label class="form-label">業務姓名 (Owner)</label>
+            <select class="form-select" id="ownerSelect" name="ownerName" onchange="updateEmail()" required>
+              <option value="" disabled selected>載入中...</option>
+            </select>
+            <input type="hidden" name="ownerEmail" id="ownerEmail">
+            <div id="emailDisplay" class="form-text text-muted mt-1"></div>
+          </div>
+        </div>
+        
+        <hr class="my-4" style="color: #e0e0e0;">
+
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label class="form-label">號碼主體</label>
+            <select class="form-select" id="subject" onchange="loadNumbers()">
+              <option value="" disabled selected>請選擇</option>
+              <option value="E2">E2</option>
+              <option value="FET">FET</option>
+            </select>
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">外線數量</label>
+            <select class="form-select" id="count" onchange="loadNumbers()">
+              <option value="" disabled selected>請選擇</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">選擇測試號碼 <span class="loading" id="loadingNums">資料讀取中...</span></label>
+          <select class="form-select" id="numberSelect" multiple size="4" required>
+            <option disabled>請先選擇條件</option>
+          </select>
+          <div class="form-text">提示：按住 Ctrl / Command 可選取多筆</div>
+          <input type="hidden" name="selectedNumbers" id="selectedNumbers">
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">客戶名稱 (Title)</label>
+          <input type="text" class="form-control" name="clientName" placeholder="請輸入客戶名稱" required>
+        </div>
+
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label class="form-label">開始日期</label>
+            <input type="date" class="form-control" name="startDate" required>
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">結束日期</label>
+            <input type="date" class="form-control" name="endDate" required>
+          </div>
+        </div>
+
+        <button type="button" class="btn btn-primary w-100 mt-3" onclick="submitForm()">確認預留</button>
+      </form>
+    </div>
+
+    <script>
+      var salesList = [];
+
+      // 初始化：載入業務清單
+      window.onload = function() {
+        google.script.run.withSuccessHandler(function(list) {
+          salesList = list;
+          var select = document.getElementById('ownerSelect');
+          select.innerHTML = '<option value="" disabled selected>請選擇業務</option>';
+          list.forEach(function(s) {
+            var opt = document.createElement('option');
+            opt.value = s.name;
+            opt.text = s.name;
+            select.add(opt);
+          });
+        }).getSalesList();
+      };
+
+      function updateEmail() {
+        var name = document.getElementById('ownerSelect').value;
+        var user = salesList.find(s => s.name === name);
+        if (user) {
+          document.getElementById('ownerEmail').value = user.email;
+          document.getElementById('emailDisplay').innerText = "Email: " + user.email;
+        }
+      }
+
+      function loadNumbers() {
+        var subject = document.getElementById('subject').value;
+        var count = document.getElementById('count').value;
+        if(subject && count) {
+          document.getElementById('loadingNums').style.display = 'inline';
+          google.script.run.withSuccessHandler(showNumbers).getAvailableNumbers(subject, count);
+        }
+      }
+
+      function showNumbers(numbers) {
+        document.getElementById('loadingNums').style.display = 'none';
+        var select = document.getElementById('numberSelect');
+        select.innerHTML = "";
+        if(numbers.length === 0) {
+          select.innerHTML = "<option disabled>無可用號碼</option>";
+        } else {
+          numbers.forEach(function(num) {
+            var option = document.createElement("option");
+            option.text = num;
+            option.value = num;
+            select.add(option);
+          });
+        }
+      }
+
+      function submitForm() {
+        var select = document.getElementById('numberSelect');
+        var selected = Array.from(select.selectedOptions).map(option => option.value);
+        
+        if (selected.length === 0) { alert("請選擇號碼"); return; }
+        
+        // 簡單驗證表單
+        var form = document.getElementById('reserveForm');
+        if (!form.checkValidity()) {
+           form.reportValidity();
+           return;
+        }
+
+        document.getElementById('selectedNumbers').value = selected.join(",");
+        
+        google.script.run.withSuccessHandler(function(msg){
+          alert(msg);
+          form.reset();
+          document.getElementById('emailDisplay').innerText = "";
+          document.getElementById('numberSelect').innerHTML = "<option disabled>請先選擇條件</option>";
+        }).reserveNumbers(form);
+      }
+    </script>
+  </body>
+</html>
