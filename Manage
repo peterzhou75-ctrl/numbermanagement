@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --primary-color: #285222;
+        --secondary-color: #2d566c;
+        --bg-color: #f4f6f8;
+      }
+      body { background-color: var(--bg-color); font-family: 'Noto Sans TC', sans-serif; padding: 20px;}
+      .container { 
+        max-width: 1000px; 
+        background: #fff; 
+        padding: 30px; 
+        border-radius: 12px; 
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05); 
+        border-top: 5px solid var(--secondary-color);
+      }
+      h2 { color: var(--secondary-color); font-weight: 700; }
+      .step-section { display: none; }
+      .active-step { display: block; }
+      
+      /* 表格樣式 */
+      .table thead { background-color: var(--secondary-color); color: #fff; }
+      .disabled-row { background-color: #f9f9f9; color: #999; }
+      .owner-badge { font-size: 0.8em; padding: 4px 8px; border-radius: 4px; background: #eee; }
+      .my-row { background-color: #f0f7f0; border-left: 4px solid var(--primary-color); }
+      
+      .btn-primary { background-color: var(--primary-color); border: none; }
+      .btn-primary:hover { background-color: #1e3e1a; }
+      .text-warn { color: #d9534f; font-weight: bold; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h2 class="mb-4 text-center">測試門號管理後台</h2>
+
+      <div id="step1" class="step-section active-step">
+        <div class="card p-4 mx-auto" style="max-width: 500px;">
+          <h5 class="card-title mb-3">請選擇您的身分</h5>
+          <div class="mb-3">
+            <select class="form-select" id="loginOwnerSelect">
+              <option value="" disabled selected>載入中...</option>
+            </select>
+          </div>
+          <button class="btn btn-primary w-100" onclick="loginAndLoad()">進入系統</button>
+        </div>
+      </div>
+
+      <div id="step2" class="step-section">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h5 id="welcomeText"></h5>
+          <button class="btn btn-outline-secondary btn-sm" onclick="location.reload()">切換使用者</button>
+        </div>
+        
+        <div class="table-responsive">
+          <table class="table table-hover align-middle">
+            <thead>
+              <tr>
+                <th width="5%">選取</th>
+                <th width="15%">號碼</th>
+                <th width="15%">客戶名稱</th>
+                <th width="10%">業務</th>
+                <th width="20%">測試區間</th>
+                <th width="35%">操作</th>
+              </tr>
+            </thead>
+            <tbody id="numbersTableBody"></tbody>
+          </table>
+        </div>
+        
+        <div class="d-flex justify-content-end mt-4">
+          <button class="btn btn-success px-4" onclick="goToConfirmation()">下一步：確認異動</button>
+        </div>
+      </div>
+
+      <div id="step3" class="step-section">
+        <h4>確認異動項目</h4>
+        <div id="confirmList" class="mt-3 mb-4 p-3 bg-light border rounded"></div>
+        <div class="d-flex justify-content-between">
+          <button class="btn btn-secondary" onclick="goBack()">上一步</button>
+          <button class="btn btn-primary" onclick="submitChanges()">確認送出並記錄</button>
+        </div>
+      </div>
+      
+      <div id="resultArea" class="mt-4"></div>
+    </div>
+
+    <script>
+      var currentUser = "";
+      var currentData = [];
+
+      // 1. 載入業務清單
+      window.onload = function() {
+        google.script.run.withSuccessHandler(function(list) {
+          var select = document.getElementById('loginOwnerSelect');
+          select.innerHTML = '<option value="" disabled selected>請選擇您的姓名</option>';
+          list.forEach(function(s) {
+            var opt = document.createElement('option');
+            opt.value = s.name;
+            opt.text = s.name;
+            select.add(opt);
+          });
+        }).getSalesList();
+      };
+
+      // 2. 登入並載入資料
+      function loginAndLoad() {
+        var user = document.getElementById('loginOwnerSelect').value;
+        if (!user) { alert("請選擇姓名"); return; }
+        
+        currentUser = user;
+        document.getElementById('welcomeText').innerText = "目前使用者: " + currentUser;
+        
+        // 切換頁面
+        document.getElementById('step1').classList.remove('active-step');
+        document.getElementById('step2').classList.add('active-step');
+        
+        // 載入所有號碼
+        google.script.run.withSuccessHandler(renderTable).getAllNumbers();
+      }
+
+      function renderTable(data) {
+        currentData = data;
+        var tbody = document.getElementById('numbersTableBody');
+        tbody.innerHTML = "";
+        
+        if (data.length === 0) {
+          tbody.innerHTML = "<tr><td colspan='6' class='text-center'>目前沒有測試中的號碼</td></tr>";
+          return;
+        }
+
+        data.forEach(function(item, index) {
+          var isMyNum = (item.owner === currentUser);
+          var tr = document.createElement('tr');
+          if (isMyNum) tr.classList.add('my-row'); // 自己的號碼加亮
+          
+          // 只有自己的號碼可以勾選
+          var checkboxHtml = isMyNum 
+            ? `<input type="checkbox" class="form-check-input item-check" data-index="${index}">` 
+            : `<span class="text-muted">-</span>`;
+
+          var actionHtml = "";
+          if (isMyNum) {
+            actionHtml = `
+              <div class="d-flex flex-column gap-2">
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="action_${index}" value="extend" onchange="toggleDate(${index})" checked>
+                  <label class="form-check-label">延展測試</label>
+                  <input type="date" class="form-control form-control-sm d-inline-block w-auto ms-2" id="date_${index}">
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="action_${index}" value="end" onchange="toggleDate(${index})">
+                  <label class="form-check-label text-danger">結束測試</label>
+                  <span id="warn_${index}" class="text-warn ms-2" style="display:none; font-size:0.85em;">請記得到CAS移除號碼</span>
+                </div>
+              </div>
+            `;
+          } else {
+            actionHtml = `<span class="text-muted">無權限異動</span>`;
+          }
+
+          tr.innerHTML = `
+            <td>${checkboxHtml}</td>
+            <td>${item.number}</td>
+            <td>${item.title}</td>
+            <td><span class="owner-badge">${item.owner}</span></td>
+            <td><small>${item.start.slice(0,10)} ~ <br>${item.end.slice(0,10)}</small></td>
+            <td>${actionHtml}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+
+      function toggleDate(index) {
+        var action = document.querySelector(`input[name="action_${index}"]:checked`).value;
+        var dateInput = document.getElementById(`date_${index}`);
+        var warnText = document.getElementById(`warn_${index}`);
+        
+        if (action === 'extend') {
+          dateInput.style.display = 'inline-block';
+          warnText.style.display = 'none';
+        } else {
+          dateInput.style.display = 'none';
+          warnText.style.display = 'inline';
+        }
+      }
+
+      function goToConfirmation() {
+        var checkboxes = document.querySelectorAll('.item-check:checked');
+        if (checkboxes.length === 0) { alert("請至少勾選一個項目"); return; }
+        
+        var html = "<ul class='list-group'>";
+        var isValid = true;
+        
+        checkboxes.forEach(function(cb) {
+          var idx = cb.getAttribute('data-index');
+          var item = currentData[idx];
+          var action = document.querySelector(`input[name="action_${idx}"]:checked`).value;
+          
+          if (action === 'extend') {
+            var newDate = document.getElementById(`date_${idx}`).value;
+            if (!newDate) {
+              alert(`請為號碼 ${item.number} 選擇延展日期`);
+              isValid = false;
+              return;
+            }
+            html += `<li class="list-group-item"><strong>${item.number} (${item.title})</strong> : 延展至 ${newDate}</li>`;
+          } else {
+            html += `<li class="list-group-item list-group-item-danger"><strong>${item.number} (${item.title})</strong> : 結束測試 (請記得到CAS移除)</li>`;
+          }
+        });
+        
+        if (!isValid) return;
+        
+        html += "</ul>";
+        document.getElementById('confirmList').innerHTML = html;
+        document.getElementById('step2').classList.remove('active-step');
+        document.getElementById('step3').classList.add('active-step');
+      }
+
+      function submitChanges() {
+        var checkboxes = document.querySelectorAll('.item-check:checked');
+        var items = [];
+        
+        checkboxes.forEach(function(cb) {
+          var idx = cb.getAttribute('data-index');
+          var action = document.querySelector(`input[name="action_${idx}"]:checked`).value;
+          var newDate = document.getElementById(`date_${idx}`).value;
+          
+          items.push({
+            row: currentData[idx].row,
+            number: currentData[idx].number,
+            title: currentData[idx].title,
+            action: action,
+            newEndDate: newDate
+          });
+        });
+
+        // 傳送 currentData 給後端作為 Log 紀錄的 operatorName
+        google.script.run.withSuccessHandler(function(msgs) {
+          var resHtml = "<div class='alert alert-success'><ul>";
+          msgs.forEach(m => resHtml += `<li>${m}</li>`);
+          resHtml += "</ul></div>";
+          
+          document.getElementById('resultArea').innerHTML = resHtml;
+          document.getElementById('step3').innerHTML = "<h4>處理完成</h4>" + resHtml + "<button class='btn btn-primary mt-3' onclick='location.reload()'>回到首頁</button>";
+          
+        }).processUpdates(items, currentUser);
+      }
+
+      function goBack() {
+        document.getElementById('step3').classList.remove('active-step');
+        document.getElementById('step2').classList.add('active-step');
+      }
+    </script>
+  </body>
+</html>
